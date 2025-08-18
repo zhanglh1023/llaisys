@@ -200,11 +200,11 @@ void rms_norm(tensor_t out, tensor_t in, tensor_t weight, float eps);
 Compute the following for each row:
 
 $$
-Y_i = \frac{W_i \times  X_i}{\sqrt{(\sum_{j=1}^n X_j^2) + \epsilon}}
+Y_i = \frac{W_i \times  X_i}{\sqrt{\frac{1}{n}(\sum_{j=1}^n X_j^2) + \epsilon}}
 $$
 
 - `out`: output $Y$ . You can assume output is a 2D contiguous tensor and no broadcasting is involved for now.
-- `input`: input $X$ . You can assume input is a 2D contiguous tensor and no broadcasting is involved for now. The normalization is performed along the last dimension (a.k.a. each row) of the input tensor.
+- `input`: input $X$ . You can assume input is a 2D contiguous tensor and no broadcasting is involved for now. The normalization is performed along the last dimension (a.k.a. each row of length $n$ ) of the input tensor.
 - `weight`: weight $W$ . 1D tensor, same length as a row of input tensor.
 - `eps`: small value $\epsilon$ to avoid division by zero.
 
