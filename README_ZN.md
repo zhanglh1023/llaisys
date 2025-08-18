@@ -190,6 +190,8 @@ $$
 - `weight`：权重 $W$ 。2D连续张量。注意权重张量没有转置。你需要在计算过程中处理这个问题。
 - `bias`（可选）：偏置 $b$ 。1D张量。你需要支持不提供偏置的情况。
 
+完成实现后，你应该能够通过`test/ops/linear.py`中的测试用例。
+
 ### 任务-2.4 RMS Normalization
 
 ```c++
@@ -199,15 +201,15 @@ void rms_norm(tensor_t out, tensor_t in, tensor_t weight, float eps);
 为每一行计算以下内容：
 
 $$
-Y_i = \frac{W_i \times  X_i}{\sqrt{\frac{1}{n}(\sum_{j=1}^n X_j^2) + \epsilon}}
+Y_i = \frac{W_i \times  X_i}{\sqrt{\frac{1}{d}(\sum_{j=1}^d X_j^2) + \epsilon}}
 $$
 
 - `out`：输出 $Y$ 。你暂时可以假设输出是一个2D连续张量，不涉及广播。
-- `input`：输入 $X$ 。你暂时可以假设输入是一个2D连续张量，不涉及广播。标准化沿输入张量的最后一个维度（即每一行，长度为 $n$ ）执行。
+- `input`：输入 $X$ 。你暂时可以假设输入是一个2D连续张量，不涉及广播。标准化沿输入张量的最后一个维度（即每一行，长度为 $d$ ）执行。
 - `weight`：权重 $W$ 。1D张量，与输入张量的一行长度相同。
 - `eps`：小值 $\epsilon$ 以避免除以零。
 
-完成实现后，你应该能够通过`test/ops/linear.py`中的测试用例。
+完成实现后，你应该能够通过`test/ops/rms_norm.py`中的测试用例。
 
 ### 任务-2.5 旋转位置编码（RoPE）
 
