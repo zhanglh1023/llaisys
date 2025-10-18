@@ -213,6 +213,8 @@ tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
     std::vector<size_t> new_shape = _meta.shape;
     std::vector<ptrdiff_t> new_strides = _meta.strides;
     new_shape[dim] = end - start;
+    //
+    //
     TensorMeta new_meta = {_meta.dtype, new_shape, new_strides};
     size_t new_offset = _offset + start * _meta.strides[dim] * this->elementSize();
     return std::shared_ptr<Tensor>(new Tensor(new_meta, _storage, new_offset));
