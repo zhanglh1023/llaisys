@@ -190,7 +190,7 @@ tensor_t Tensor::view(const std::vector<size_t> &shape) const {
     size_t new_numel = std::accumulate(shape.begin(), shape.end(), size_t(1), std::multiplies<size_t>());
     size_t old_numel = this->numel();
     if(new_numel != old_numel) throw std::runtime_error("Tensor::view: view shape has different number of elements");
-    if(!this->contiguous()) throw std::runtime_error("Tensor::view: old shape not contiguous");
+    if(!this->isContiguous()) throw std::runtime_error("Tensor::view: old shape not contiguous");
     std::vector<ptrdiff_t> strides;
     size_t expected_stride = 1;
     for(int i = shape.size() - 1;i >= 0;i--) {
@@ -237,6 +237,7 @@ void Tensor::load(const void *src_) {
 }
 
 tensor_t Tensor::contiguous() const {
+    if(this->isContiguous()) return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
     TO_BE_IMPLEMENTED();
     return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
 }
