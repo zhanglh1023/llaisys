@@ -11,8 +11,8 @@ void argmax(tensor_t max_idx, tensor_t max_val, tensor_t vals) {
     //std::cout<<max_val->dtype()<<" "<<vals->dtype()<<"\n";
     CHECK_SAME_DTYPE(max_val->dtype(), vals->dtype());
     if(max_idx->numel() != 1 || max_val->numel() != 1
-        || vals->ndim() != 1 || max_idx->dtype() != LLAISYS_DTYPE_I64) {
-        std::cout<<max_idx->numel()<<" "<<max_val->numel()<<" "<<vals->ndim()<<" "
+        || max_idx->dtype() != LLAISYS_DTYPE_I64) {
+        std::cout<<max_idx->numel()<<" "<<max_val->numel()<<" "
         <<max_idx->dtype()<<" "<<LLAISYS_DTYPE_I64<<"\n";
         TO_BE_IMPLEMENTED();
     }

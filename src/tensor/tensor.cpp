@@ -191,14 +191,11 @@ tensor_t Tensor::view(const std::vector<size_t> &shape) const {
     size_t old_numel = this->numel();
     if(new_numel != old_numel) throw std::runtime_error("Tensor::view: view shape has different number of elements");
     if(!this->isContiguous()) throw std::runtime_error("Tensor::view: old shape not contiguous");
-    std::vector<ptrdiff_t> strides;
+    std::vector<ptrdiff_t> strides(shape.size());
     size_t expected_stride = 1;
     for(int i = shape.size() - 1;i >= 0;i--) {
-        strides.push_back(expected_stride);
+        strides[i] = expected_stride;
         expected_stride *= shape[i];
-    }
-    for(size_t i = 0;i < shape.size() / 2;i++) {
-        std::swap(strides[i], strides[shape.size() - 1 - i]);
     }
     llaisys::TensorMeta meta = {this->dtype(), shape, strides};
     return std::shared_ptr<Tensor>(new Tensor(meta, _storage));

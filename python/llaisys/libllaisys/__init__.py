@@ -13,6 +13,11 @@ from .tensor import llaisysTensor_t
 from .tensor import load_tensor
 from .ops import load_ops
 
+from .qwen2 import LlaisysQwen2Meta
+from .qwen2 import LlaisysQwen2Model, llaisysQwen2Model_p
+from .qwen2 import LlaisysQwen2Weights
+from .qwen2 import load_qwen2
+
 
 def load_shared_library():
     lib_dir = Path(__file__).parent
@@ -38,7 +43,7 @@ LIB_LLAISYS = load_shared_library()
 load_runtime(LIB_LLAISYS)
 load_tensor(LIB_LLAISYS)
 load_ops(LIB_LLAISYS)
-
+load_qwen2(LIB_LLAISYS)
 
 __all__ = [
     "LIB_LLAISYS",
@@ -52,4 +57,8 @@ __all__ = [
     "llaisysMemcpyKind_t",
     "MemcpyKind",
     "llaisysStream_t",
+
+    "LlaisysQwen2Meta",
+    "LlaisysQwen2Weights",
+    "llaisysQwen2Model_p",
 ]
