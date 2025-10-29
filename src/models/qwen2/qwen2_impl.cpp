@@ -195,6 +195,7 @@ static T read_scalar_from_tensor(const tensor_t& t) {
     return v;
 }
 static size_t safe_dim(tensor_t t, size_t idx) {
+    if(t == nullptr) return 0;
     const std::vector<size_t>& shape = t->shape();
     if(idx < 0 || idx >= shape.size()) return 0;
     return shape[idx];
@@ -234,8 +235,8 @@ int64_t Qwen2Impl::forward(const int64_t *token_ids, size_t ntoken, size_t pos_b
     index->load(token_ids);
     tensor_t x = Tensor::create({seqlen, hidden_size}, dtype, dev_type, dev_id);
     ops::embedding(x, index, in_embed);
-    std::cerr<<"index shape :" << safe_dim(index, 0)<<" "<<safe_dim(index, 1)<<"\n";
-    std::cerr<<"in_embed shape :" << safe_dim(in_embed, 0)<<" "<<safe_dim(in_embed, 1)<<"\n";
+    //std::cerr<<"index shape :" << safe_dim(index, 0)<<" "<<safe_dim(index, 1)<<"\n";
+    //std::cerr<<"in_embed shape :" << safe_dim(in_embed, 0)<<" "<<safe_dim(in_embed, 1)<<"\n";
     tensor_t pos_ids = Tensor::create({seqlen}, LLAISYS_DTYPE_I64, dev_type, dev_id);
     {
         std::vector<int64_t> p(seqlen);
@@ -293,11 +294,23 @@ int64_t Qwen2Impl::forward(const int64_t *token_ids, size_t ntoken, size_t pos_b
         ops::rope(q, q, pos_ids, meta.theta);
         ops::rope(k, k, pos_ids, meta.theta);
 
+        tensor_t all_k = k;
+        tensor_t all_v = v;
+        if(use_kvcache) {
+            append_kv(layer_id, k, v, pos_base);
+            //std::cerr<<"append_kv\n";
+            all_k = kcache_view(layer_id, pos_base + safe_dim(k, 0));
+            all_v = vcache_view(layer_id, pos_base + safe_dim(v, 0));
+        }
+        //if(layer_id == 0) {
+            //std::cerr<<"k_all shape :" << safe_dim(all_k, 0)<<" "<<safe_dim(all_k, 1)<<" "<<safe_dim(all_k, 2);
+            //std::cerr<<"v_all shape :" << safe_dim(all_v, 0)<<" "<<safe_dim(all_v, 1)<<" "<<safe_dim(all_v, 2);
+        //}
         //self_attention
         tensor_t attn3d = Tensor::create({seqlen, meta.nh, meta.dh}, dtype, dev_type, dev_id);
 
         float scale = 1.0 / std::sqrt((float)meta.dh);
-        ops::self_attention(attn3d, q, k, v, scale);
+        ops::self_attention(attn3d, q, all_k, all_v, scale);
         tensor_t attn = attn3d->view({seqlen, hidden_size});
         tensor_t o = Tensor::create({seqlen, hidden_size}, dtype, dev_type, dev_id);
         ops::linear(o, attn, o_w, nullptr);
@@ -351,7 +364,7 @@ int64_t Qwen2Impl::prifill(const int64_t *token_ids, size_t ntoken) {
     auto start_time = std::chrono::high_resolution_clock::now();
 
     ctx_tokens_.assign(token_ids, token_ids + ntoken);
-    // reset_cache();
+    reset_cache();
 
     int64_t next_token_id = forward(token_ids, ntoken, 0);
 
@@ -360,5 +373,83 @@ int64_t Qwen2Impl::prifill(const int64_t *token_ids, size_t ntoken) {
     std::cout << "[Prefill] Tokens: " << ntoken << ", Time: " << duration.count() / 1000 << " ms " << std::endl;
     std::cout << "next_token_id: " << next_token_id << std::endl;
     return next_token_id;
+}
+
+int64_t Qwen2Impl::decode_one(const int64_t token_id) {
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    int64_t next_id = forward(&token_id, 1, ctx_tokens_.size());
+
+    ctx_tokens_.push_back(token_id);
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    std::cout << "[Prefill] Tokens: " << ctx_tokens_.size() << ", Time: " << duration.count() / 1000 << " ms " << std::endl;
+    std::cout << "next_token_id: " << next_id << std::endl;
+
+    return next_id;
+}
+
+void Qwen2Impl::reset_cache() {
+    k_cache.assign(meta.nlayer, nullptr);
+    v_cache.assign(meta.nlayer, nullptr);
+    cache_len = 0;
+}
+
+void Qwen2Impl::ensure_kvcache_capacity(size_t layer_id, size_t need_ntoken, llaisysDataType_t dtype, 
+                            llaisysDeviceType_t devtype, int devid) {
+
+    auto grow = [this, need_ntoken, dtype, devtype, devid](tensor_t& cache) {
+        size_t old_capacity = safe_dim(cache, 0);
+        size_t new_capacity = need_ntoken;
+
+        if(new_capacity <= old_capacity) return ;
+
+        old_capacity = old_capacity ? old_capacity : 1;
+        while(old_capacity < new_capacity) old_capacity *= 2;
+        
+        tensor_t new_cache = Tensor::create({new_capacity, this->meta.nkvh, this->meta.dh}, dtype,
+                                        devtype, devid);
+        if(cache != nullptr) {
+            size_t size = cache->numel() * cache->elementSize();
+            auto api = core::context().runtime().api();
+            api->memcpy_sync(new_cache->data(), cache->data(), size, 
+                            (cache->deviceType() == LLAISYS_DEVICE_CPU) ? LLAISYS_MEMCPY_H2H : LLAISYS_MEMCPY_D2D);
+        }
+        cache = new_cache;
+    };
+
+    grow(k_cache[layer_id]);
+    grow(v_cache[layer_id]);
+}
+void Qwen2Impl::append_kv(size_t layer_id, const tensor_t& k, const tensor_t& v, size_t pos) {
+    
+    size_t ntoken = safe_dim(k, 0);
+    size_t nkvh = meta.nkvh;
+    size_t dh = meta.dh;
+    size_t row_size = dh * nkvh * k->elementSize();
+    ensure_kvcache_capacity(layer_id, ntoken + pos, k->dtype(), k->deviceType(), k->deviceId());
+    //std::cerr<<"ensure_kvcache\n";
+    llaisysDeviceType_t src_device = k->deviceType();
+    auto api = core::context().runtime().api();
+    for(size_t i = 0;i < ntoken;i++) {
+        auto dst = k_cache[layer_id]->data() + (pos + i) * row_size;
+        auto src = k->data() + i * row_size;
+        api->memcpy_sync(dst, src, row_size, ((src_device == LLAISYS_DEVICE_CPU) ? LLAISYS_MEMCPY_H2H : LLAISYS_MEMCPY_D2D));
+    }
+    for(size_t i = 0;i < ntoken;i++) {
+        auto dst = v_cache[layer_id]->data() + (pos + i) * row_size;
+        auto src = v->data() + i * row_size;
+        api->memcpy_sync(dst, src, row_size, ((src_device == LLAISYS_DEVICE_CPU) ? LLAISYS_MEMCPY_H2H : LLAISYS_MEMCPY_D2D));
+    }
+
+    if(cache_len < ntoken + pos) cache_len  = ntoken + pos;    
+}
+
+tensor_t Qwen2Impl::kcache_view(size_t layer_id, size_t total_len) {
+    return k_cache[layer_id]->slice(0, 0, total_len);
+}
+tensor_t Qwen2Impl::vcache_view(size_t layer_id, size_t total_len) {
+    return v_cache[layer_id]->slice(0, 0, total_len);
 }
 } // namespace llaisys::models::qwen2

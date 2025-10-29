@@ -195,12 +195,10 @@ class Qwen2:
         
         last = token
         new_tokens += 1
-        #max_new_tokens = 1
+        #max_new_tokens = 3
         limit = max_new_tokens if max_new_tokens is not None else 512
         while last != eos_id and new_tokens < limit :
-            ids = np.asarray(list(out), dtype=np.int64)
-            ids_ptr = ids.ctypes.data_as(ctypes.POINTER(ctypes.c_int64))
-            nxt = C.llaisysQwen2ModelInfer(self.model, ids_ptr, ctypes.c_size_t(ids.size))
+            nxt = C.llaisysQwen2ModelForwardOne(self.model, ctypes.c_int64(last))
             if nxt is None or nxt < 0:
                 print("[generate] prefill returned None/<0>, stop.")
                 return out

@@ -70,11 +70,11 @@ def load_qwen2(lib):
     ]
     lib.llaisysQwen2ModelInfer.restype = c_int64
 
-    #lib.llaisysQwen2ModelForwardOne.argtypes = [
-    #    llaisysQwen2Model_p,
-    #    c_int64,
-    #]
-    #lib.llaisysQwen2ModelForwardOne.restype = c_int64
+    lib.llaisysQwen2ModelForwardOne.argtypes = [
+        llaisysQwen2Model_p,
+        c_int64,
+    ]
+    lib.llaisysQwen2ModelForwardOne.restype = c_int64
 
     #lib.llaisysQwen2ModelLogits.argtypes = [
     #    llaisysQwen2Model_p,

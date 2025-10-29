@@ -1,6 +1,7 @@
 #pragma once
 
 #include "llaisys/models/qwen2.h"
+#include "../../tensor/tensor.hpp"
 
 #include <vector>
 namespace llaisys::models::qwen2 {
@@ -24,6 +25,7 @@ public:
     int64_t forward(const int64_t *token_ids, size_t ntoken, size_t pos_base);
     int64_t prifill(const int64_t *token_ids, size_t ntoken);
 
+    int64_t decode_one(const int64_t token_id);
 
 private:
     LlaisysQwen2Meta meta;
@@ -33,6 +35,18 @@ private:
     std::vector<int> device_ids;
 
     std::vector<int64_t> ctx_tokens_;
+    
+    // kv cache
+    bool use_kvcache = true;
 
+    void reset_cache();
+    void ensure_kvcache_capacity(size_t layer_id, size_t ntoken, llaisysDataType_t dtype, 
+                            llaisysDeviceType_t devtype, int devid);
+    void append_kv(size_t layer_id, const tensor_t& k, const tensor_t& v, size_t pos);
+    tensor_t kcache_view(size_t layer_id, size_t total_len);
+    tensor_t vcache_view(size_t layer_id, size_t total_len);
+    size_t cache_len;
+    std::vector<tensor_t> k_cache;
+    std::vector<tensor_t> v_cache;
 };
 }

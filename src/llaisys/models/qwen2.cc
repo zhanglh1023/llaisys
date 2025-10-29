@@ -42,4 +42,14 @@ __C {
         }
     }
 
+    int64_t llaisysQwen2ModelForwardOne(struct LlaisysQwen2Model *model, int64_t token_id) {
+        if(model == nullptr || model->impl == nullptr) return -1;
+        try {
+            return model->impl->decode_one(token_id);
+        } catch(...) {
+            return -1;
+        }
+    }
+
+
 }

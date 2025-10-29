@@ -39,7 +39,7 @@ __C {
 
     __export int64_t llaisysQwen2ModelInfer(struct LlaisysQwen2Model * model, int64_t * token_ids, size_t ntoken);
 
-    //__export int64_t llaisysQwen2ModelForwardOne(struct LlaisysQwen2Model *model, int64_t token_id);
+    __export int64_t llaisysQwen2ModelForwardOne(struct LlaisysQwen2Model *model, int64_t token_id);
 
     //__export llaisysTensor_t llaisysQwen2ModelLogits(struct LlaisysQwen2Model *model);
 }
