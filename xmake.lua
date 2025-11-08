@@ -15,6 +15,25 @@ option_end()
 
 if has_config("nv-gpu") then
     add_defines("ENABLE_NVIDIA_API")
+    add_defines("_CRT_SECURE_NO_WARNINGS")
+
+    add_links("cublasLt", "cublas")
+    add_syslinks("cudart")
+
+    if is_plat("windows") then
+        local cuda_path = os.getenv("CUDA_PATH")
+
+        if cuda_path then
+            add_includedirs(path.join(cuda_path, "include"), {public = true})
+            add_linkdirs(path.join(cuda_path, "lib/x64"))
+        end
+
+        add_cuflags("-Xcompiler=/utf-8,/MD", {force = true})
+    elseif is_plat("linux") then
+        add_includedirs("/usr/local/cuda/include", {public = true})
+        add_linkdirs("/usr/local/cuda/lib64")
+    end
+
     includes("xmake/nvidia.lua")
 end
 
@@ -37,6 +56,10 @@ target("llaisys-device")
     set_kind("static")
     add_deps("llaisys-utils")
     add_deps("llaisys-device-cpu")
+
+    if has_config("nv-gpu") then
+        add_deps("llaisys-device-nvidia", {public = true})
+    end
 
     set_languages("cxx17")
     set_warnings("all", "error")
@@ -84,6 +107,10 @@ target("llaisys-ops")
     set_kind("static")
     add_deps("llaisys-ops-cpu")
 
+    if has_config("nv-gpu") then
+        add_deps("llaisys-ops-nvidia", {public = true})
+    end
+
     set_languages("cxx17")
     set_warnings("all", "error")
     if not is_plat("windows") then
@@ -127,7 +154,8 @@ target("llaisys")
     add_files("src/llaisys/models/*.cc")
     set_installdir(".")
 
-    
+    set_policy("build.cuda.devlink", true)
+
     after_install(function (target)
         -- copy shared library to python package
         print("Copying llaisys to python/llaisys/libllaisys/ ..")
@@ -136,6 +164,31 @@ target("llaisys")
         end
         if is_plat("linux") then
             os.cp("lib/*.so", "python/llaisys/libllaisys/")
+        end
+
+        if has_config("nv-gpu") then
+            -- link cuda lib
+            if is_plat("windows") then
+                local cuda_path  = os.getenv("CUDA_PATH")
+                
+                if cuda_path then
+                    local cudabin = path.join(cuda_path, "bin/x64")
+
+                    -- 核心 CUDA 库
+                    os.trycp(path.join(cudabin, "cublas64_13.dll"),   "python/llaisys/libllaisys/")
+                    os.trycp(path.join(cudabin, "cublasLt64_13.dll"), "python/llaisys/libllaisys/")
+                    os.trycp(path.join(cudabin, "cudart64_13.dll"), "python/llaisys/libllaisys/")
+                    -- 13.0 NVRTC 运行时（Graph JIT 需要）
+                    os.trycp(path.join(cudabin, "nvrtc*64_130*.dll"), "python/llaisys/libllaisys/")
+                    os.trycp(path.join(cudabin, "nvptxcompiler64_*.dll"), "python/llaisys/libllaisys/")
+                    os.trycp(path.join(cudabin, "nvvm64_*.dll"), "python/llaisys/libllaisys/")
+                    
+                else
+                    print("nv-gpu enabled but CUDA_PATH or CUDNN_PATH not set!")  
+                end
+            elseif is_plat("linux") then
+                -- linux
+            end
         end
     end)
 target_end()
