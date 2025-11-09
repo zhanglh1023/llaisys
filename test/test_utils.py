@@ -181,6 +181,7 @@ def benchmark(torch_func, llaisys_func, device_name, warmup=10, repeat=100):
     print(
         f"        Torch time: {torch_time*1000:.5f} ms \n        LLAISYS time: {llaisys_time*1000:.5f} ms"
     )
+    print(f"        Torch time / LLAISYS time: {torch_time / llaisys_time:.5f}") #加数比
 
 
 def torch_device(device_name: str, device_id=0):

@@ -1,0 +1,25 @@
+Testing Ops.add on nvidia
+   shape (2, 3) dtype <f32>
+        Torch time: 0.01308 ms 
+        LLAISYS time: 0.01162 ms
+        Torch time / LLAISYS time: 1.12597
+   shape (2, 3) dtype <f16>
+        Torch time: 0.01513 ms 
+        LLAISYS time: 0.01490 ms
+        Torch time / LLAISYS time: 1.01584
+   shape (2, 3) dtype <bf16>
+        Torch time: 0.01109 ms 
+        LLAISYS time: 0.00775 ms
+        Torch time / LLAISYS time: 1.43094
+   shape (512, 4096) dtype <f32>
+        Torch time: 0.02874 ms 
+        LLAISYS time: 0.02661 ms
+        Torch time / LLAISYS time: 1.07991
+   shape (512, 4096) dtype <f16>
+        Torch time: 0.01712 ms 
+        LLAISYS time: 0.01891 ms
+        Torch time / LLAISYS time: 0.90519
+   shape (512, 4096) dtype <bf16>
+        Torch time: 0.02154 ms 
+        LLAISYS time: 0.02281 ms
+        Torch time / LLAISYS time: 0.94429
