@@ -5,7 +5,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
 import llaisys
 import torch
-from test_utils import random_tensor, check_equal, benchmark
+from test_utils import random_tensor, check_equal, benchmark, zero_tensor
 
 
 def torch_linear(out, x, w, bias):
@@ -30,6 +30,8 @@ def test_op_linear(
     bias, bias_ = None, None
     if use_bias:
         bias, bias_ = random_tensor((w_shape[0],), dtype_name, device_name)
+    else : 
+        bias, bias_ = zero_tensor((w_shape[0],), dtype_name, device_name)
 
     out, out_ = random_tensor(out_shape, dtype_name, device_name)
     torch_linear(out, x, w, bias)
@@ -55,6 +57,7 @@ if __name__ == "__main__":
     testShapes = [
         ((2, 3), (2, 4), (3, 4), True),
         ((512, 4096), (512, 4096), (4096, 4096), True),
+        ((10, 1536), (10, 1536), (1536, 1536), True),
     ]
     testDtypePrec = [
         # type, atol, rtol

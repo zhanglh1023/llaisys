@@ -1,0 +1,91 @@
+带bias: cublas+elements_add
+Testing Ops.linear on nvidia
+   out (2, 3), x (2, 4), w (3, 4), bias True, dtype <f32>
+        Torch time: 0.03134 ms 
+        LLAISYS time: 0.02821 ms
+        Torch time / LLAISYS time: 1.11095
+   out (2, 3), x (2, 4), w (3, 4), bias True, dtype <f16>
+        Torch time: 0.01346 ms 
+        LLAISYS time: 0.02386 ms
+        Torch time / LLAISYS time: 0.56409
+   out (2, 3), x (2, 4), w (3, 4), bias True, dtype <bf16>
+        Torch time: 0.01181 ms 
+        LLAISYS time: 0.02483 ms
+        Torch time / LLAISYS time: 0.47571
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias True, dtype <f32>
+        Torch time: 2.07438 ms 
+        LLAISYS time: 2.12770 ms
+        Torch time / LLAISYS time: 0.97494
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias True, dtype <f16>
+        Torch time: 0.60461 ms 
+        LLAISYS time: 0.61743 ms
+        Torch time / LLAISYS time: 0.97924
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias True, dtype <bf16>
+        Torch time: 0.59535 ms 
+        LLAISYS time: 0.61876 ms
+        Torch time / LLAISYS time: 0.96216
+不带bias: cublas
+Testing Ops.linear on nvidia
+   out (2, 3), x (2, 4), w (3, 4), bias False, dtype <f32>
+        Torch time: 0.01232 ms 
+        LLAISYS time: 0.00840 ms
+        Torch time / LLAISYS time: 1.46595
+   out (2, 3), x (2, 4), w (3, 4), bias False, dtype <f16>
+        Torch time: 0.01356 ms 
+        LLAISYS time: 0.00923 ms
+        Torch time / LLAISYS time: 1.46863
+   out (2, 3), x (2, 4), w (3, 4), bias False, dtype <bf16>
+        Torch time: 0.02603 ms 
+        LLAISYS time: 0.01905 ms
+        Torch time / LLAISYS time: 1.36624
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias False, dtype <f32>
+        Torch time: 2.02385 ms 
+        LLAISYS time: 2.08761 ms
+        Torch time / LLAISYS time: 0.96945
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias False, dtype <f16>
+        Torch time: 0.63619 ms 
+        LLAISYS time: 0.59903 ms
+        Torch time / LLAISYS time: 1.06203
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias False, dtype <bf16>
+        Torch time: 0.59478 ms 
+        LLAISYS time: 0.59849 ms
+        Torch time / LLAISYS time: 0.99380
+
+Testing Ops.linear on nvidia
+   out (2, 3), x (2, 4), w (3, 4), bias True, dtype <f32>
+        Torch time: 0.01366 ms 
+        LLAISYS time: 0.00807 ms
+        Torch time / LLAISYS time: 1.69326
+   out (2, 3), x (2, 4), w (3, 4), bias True, dtype <f16>
+        Torch time: 0.01357 ms 
+        LLAISYS time: 0.00939 ms
+        Torch time / LLAISYS time: 1.44442
+   out (2, 3), x (2, 4), w (3, 4), bias True, dtype <bf16>
+        Torch time: 0.01988 ms 
+        LLAISYS time: 0.00853 ms
+        Torch time / LLAISYS time: 2.33128
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias True, dtype <f32>
+        Torch time: 2.14165 ms 
+        LLAISYS time: 2.28320 ms
+        Torch time / LLAISYS time: 0.93800
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias True, dtype <f16>
+        Torch time: 0.65851 ms 
+        LLAISYS time: 0.68378 ms
+        Torch time / LLAISYS time: 0.96303
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias True, dtype <bf16>
+        Torch time: 0.64462 ms 
+        LLAISYS time: 0.67980 ms
+        Torch time / LLAISYS time: 0.94825
+
+out (512, 4096), x (512, 4096), w (4096, 4096), bias False, dtype <f32>
+        Torch time: 2.35575 ms 
+        LLAISYS time: 11.38076 ms
+        Torch time / LLAISYS time: 0.20699
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias False, dtype <f16>
+        Torch time: 0.61541 ms 
+        LLAISYS time: 11.29010 ms
+        Torch time / LLAISYS time: 0.05451
+   out (512, 4096), x (512, 4096), w (4096, 4096), bias False, dtype <bf16>
+        Torch time: 0.61538 ms 
+        LLAISYS time: 11.61941 ms
+        Torch time / LLAISYS time: 0.05296

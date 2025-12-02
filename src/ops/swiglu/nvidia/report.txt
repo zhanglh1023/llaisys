@@ -1,0 +1,51 @@
+Testing Ops.swiglu on nvidia
+   shape (2, 3) dtype <f32>
+        Torch time: 0.06119 ms 
+        LLAISYS time: 0.01221 ms
+        Torch time / LLAISYS time: 5.01211
+   shape (2, 3) dtype <f16>
+        Torch time: 0.07988 ms 
+        LLAISYS time: 0.00668 ms
+        Torch time / LLAISYS time: 11.95362
+   shape (2, 3) dtype <bf16>
+        Torch time: 0.10064 ms 
+        LLAISYS time: 0.01238 ms
+        Torch time / LLAISYS time: 8.12825
+   shape (512, 4096) dtype <f32>
+        Torch time: 0.17570 ms 
+        LLAISYS time: 0.02640 ms
+        Torch time / LLAISYS time: 6.65451
+   shape (512, 4096) dtype <f16>
+        Torch time: 0.19235 ms 
+        LLAISYS time: 0.02719 ms
+        Torch time / LLAISYS time: 7.07329
+   shape (512, 4096) dtype <bf16>
+        Torch time: 0.12065 ms 
+        LLAISYS time: 0.02736 ms
+        Torch time / LLAISYS time: 4.41041
+
+Testing Ops.swiglu on nvidia
+   shape (2, 3) dtype <f32>
+        Torch time: 0.04356 ms 
+        LLAISYS time: 0.00787 ms
+        Torch time / LLAISYS time: 5.53697
+   shape (2, 3) dtype <f16>
+        Torch time: 0.06250 ms 
+        LLAISYS time: 0.00729 ms
+        Torch time / LLAISYS time: 8.57475
+   shape (2, 3) dtype <bf16>
+        Torch time: 0.06079 ms 
+        LLAISYS time: 0.00702 ms
+        Torch time / LLAISYS time: 8.65739
+   shape (512, 4096) dtype <f32>
+        Torch time: 0.17447 ms 
+        LLAISYS time: 0.02769 ms
+        Torch time / LLAISYS time: 6.30076
+   shape (512, 4096) dtype <f16>
+        Torch time: 0.10850 ms 
+        LLAISYS time: 0.02768 ms
+        Torch time / LLAISYS time: 3.91939
+   shape (512, 4096) dtype <bf16>
+        Torch time: 0.08668 ms 
+        LLAISYS time: 0.02960 ms
+        Torch time / LLAISYS time: 2.92816

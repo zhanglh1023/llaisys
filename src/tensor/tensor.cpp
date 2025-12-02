@@ -216,21 +216,10 @@ tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
 }
 
 void Tensor::load(const void *src_) {
-    size_t total_bytes = this->numel() * this->elementSize();
-
-    auto& runtime = core::context().runtime();
-    auto api = runtime.api();
-    if(runtime.deviceType() == LLAISYS_DEVICE_CPU) {
-        if(this->deviceType() == LLAISYS_DEVICE_CPU)
-            api->memcpy_sync((void*)this->data(), (void*)src_, total_bytes, LLAISYS_MEMCPY_H2H);
-        else api->memcpy_sync((void*)this->data(), (void*)src_, total_bytes, LLAISYS_MEMCPY_H2D);
-    } else {
-        if(this->deviceType() == LLAISYS_DEVICE_CPU)
-            api->memcpy_sync((void*)this->data(), (void*)src_, total_bytes, LLAISYS_MEMCPY_D2H);
-        else api->memcpy_sync((void*)this->data(), (void*)src_, total_bytes, LLAISYS_MEMCPY_D2D);
-    }
-
-    core::context().runtime().synchronize();
+    size_t total_size = this->numel() * this->elementSize();
+    core::context().runtime().api()->memcpy_sync(this->data(), src_, total_size, 
+        LLAISYS_MEMCPY_H2D); 
+    return ;
 }
 
 tensor_t Tensor::contiguous() const {

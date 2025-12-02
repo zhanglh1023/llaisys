@@ -101,7 +101,8 @@ if __name__ == "__main__":
     # Example prompt
     start_time = time.time()
     tokens, output = hf_infer(
-        args.prompt,
+        #args.prompt,
+        "hi",
         tokenizer,
         model,
         max_new_tokens=args.max_steps,
@@ -125,7 +126,8 @@ if __name__ == "__main__":
     model = load_llaisys_model(model_path, args.device)
     start_time = time.time()
     llaisys_tokens, llaisys_output = llaisys_infer(
-        args.prompt,
+        #args.prompt,
+        "hi",
         tokenizer,
         model,
         max_new_tokens=args.max_steps,

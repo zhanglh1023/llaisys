@@ -9,6 +9,11 @@ Runtime::Runtime(llaisysDeviceType_t device_type, int device_id)
     _api = llaisys::device::getRuntimeAPI(_device_type);
     _stream = _api->create_stream();
     _allocator = new allocators::NaiveAllocator(_api);
+    #if defined(ENABLE_NVIDIA_API)
+        _cublas_handle = nullptr;
+        cublasCreate(&_cublas_handle);
+        cublasSetStream(_cublas_handle, static_cast<cudaStream_t>(_stream));
+    #endif
 }
 
 Runtime::~Runtime() {
@@ -65,6 +70,13 @@ void Runtime::freeStorage(Storage *storage) {
 llaisysStream_t Runtime::stream() const {
     return _stream;
 }
+
+#if defined(ENABLE_NVIDIA_API)
+cublasHandle_t Runtime::cublasHandle() const {
+    ASSERT(_cublas_handle != nullptr, "cuBLAS handle is not initialized.");
+    return _cublas_handle;
+}
+#endif
 
 void Runtime::synchronize() const {
     _api->stream_synchronize(_stream);

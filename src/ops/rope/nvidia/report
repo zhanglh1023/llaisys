@@ -1,0 +1,25 @@
+Testing Ops.rope on nvidia
+   shape (2, 1, 4) range (0, 2) dtype <f32>
+        Torch time: 0.21263 ms 
+        LLAISYS time: 0.00745 ms
+        Torch time / LLAISYS time: 28.55684
+   shape (2, 1, 4) range (0, 2) dtype <f16>
+        Torch time: 0.22988 ms 
+        LLAISYS time: 0.01282 ms
+        Torch time / LLAISYS time: 17.93508
+   shape (2, 1, 4) range (0, 2) dtype <bf16>
+        Torch time: 0.21711 ms 
+        LLAISYS time: 0.01257 ms
+        Torch time / LLAISYS time: 17.26602
+   shape (512, 4, 4096) range (512, 1024) dtype <f32>
+        Torch time: 1.29411 ms 
+        LLAISYS time: 0.57287 ms
+        Torch time / LLAISYS time: 2.25899
+   shape (512, 4, 4096) range (512, 1024) dtype <f16>
+        Torch time: 1.10589 ms 
+        LLAISYS time: 0.53951 ms
+        Torch time / LLAISYS time: 2.04980
+   shape (512, 4, 4096) range (512, 1024) dtype <bf16>
+        Torch time: 1.10901 ms 
+        LLAISYS time: 0.53420 ms
+        Torch time / LLAISYS time: 2.07602

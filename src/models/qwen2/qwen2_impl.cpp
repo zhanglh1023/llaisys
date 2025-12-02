@@ -384,7 +384,7 @@ int64_t Qwen2Impl::decode_one(const int64_t token_id) {
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-    std::cout << "[Prefill] Tokens: " << ctx_tokens_.size() << ", Time: " << duration.count() / 1000 << " ms " << std::endl;
+    std::cout << "[Decode] Tokens: " << ctx_tokens_.size() << ", Time: " << duration.count() / 1000 << " ms " << std::endl;
     std::cout << "next_token_id: " << next_id << std::endl;
 
     return next_id;

@@ -2,6 +2,7 @@
 #include "utils.cuh"
 #include <cstdlib>
 #include <cstring>
+#include <cuda_runtime.h>
 
 namespace llaisys::device::nvidia {
 

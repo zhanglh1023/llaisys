@@ -1,0 +1,26 @@
+Testing Ops.argmax on nvidia
+   shape (4,) dtype <f32>
+        Torch time: 0.00891 ms 
+        LLAISYS time: 0.00633 ms
+        Torch time / LLAISYS time: 1.40806
+   shape (4,) dtype <f16>
+        Torch time: 0.00875 ms 
+        LLAISYS time: 0.00693 ms
+        Torch time / LLAISYS time: 1.26204
+   shape (4,) dtype <bf16>
+        Torch time: 0.00967 ms 
+        LLAISYS time: 0.00560 ms
+        Torch time / LLAISYS time: 1.72596
+   shape (4096,) dtype <f32>
+        Torch time: 0.00924 ms 
+        LLAISYS time: 0.00619 ms
+        Torch time / LLAISYS time: 1.49345
+   shape (4096,) dtype <f16>
+        Torch time: 0.01071 ms 
+        LLAISYS time: 0.00901 ms
+        Torch time / LLAISYS time: 1.18952
+   shape (4096,) dtype <bf16>
+        Torch time: 0.00944 ms 
+        LLAISYS time: 0.00782 ms
+        Torch time / LLAISYS time: 1.20664
+Test passed!

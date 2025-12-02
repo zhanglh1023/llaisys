@@ -131,7 +131,6 @@ def check_equal(
             right += strides[i] * (shape[i] - 1)
         else:  # TODO: Support negative strides in the future
             raise ValueError("Negative strides are not supported yet")
-
     tmp = torch.zeros(
         (right + 1,),
         dtype=torch_answer.dtype,

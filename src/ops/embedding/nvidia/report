@@ -1,0 +1,27 @@
+每个线程块处理一个hidden_size大小的向量，一共token_size个线程块
+Testing Ops.embedding on nvidia
+   idx_shape (1,) embd_shape (2, 3) dtype <f32>
+        Torch time: 0.05405 ms 
+        LLAISYS time: 0.01334 ms
+        Torch time / LLAISYS time: 4.05238
+   idx_shape (1,) embd_shape (2, 3) dtype <f16>
+        Torch time: 0.05120 ms 
+        LLAISYS time: 0.01239 ms
+        Torch time / LLAISYS time: 4.13159
+   idx_shape (1,) embd_shape (2, 3) dtype <bf16>
+        Torch time: 0.05776 ms 
+        LLAISYS time: 0.01403 ms
+        Torch time / LLAISYS time: 4.11674
+   idx_shape (50,) embd_shape (512, 4096) dtype <f32>
+        Torch time: 0.06435 ms 
+        LLAISYS time: 0.01674 ms
+        Torch time / LLAISYS time: 3.84404
+   idx_shape (50,) embd_shape (512, 4096) dtype <f16>
+        Torch time: 0.02520 ms 
+        LLAISYS time: 0.00705 ms
+        Torch time / LLAISYS time: 3.57578
+   idx_shape (50,) embd_shape (512, 4096) dtype <bf16>
+        Torch time: 0.02317 ms 
+        LLAISYS time: 0.00697 ms
+        Torch time / LLAISYS time: 3.32387
+Test passed!

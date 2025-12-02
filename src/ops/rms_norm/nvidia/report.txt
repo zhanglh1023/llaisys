@@ -1,0 +1,25 @@
+Testing Ops.rms_norm on nvidia
+   shape (1, 4) dtype <f32>
+        Torch time: 0.08099 ms 
+        LLAISYS time: 0.01225 ms
+        Torch time / LLAISYS time: 6.61113
+   shape (1, 4) dtype <f16>
+        Torch time: 0.08359 ms 
+        LLAISYS time: 0.00773 ms
+        Torch time / LLAISYS time: 10.80826
+   shape (1, 4) dtype <bf16>
+        Torch time: 0.08579 ms 
+        LLAISYS time: 0.00817 ms
+        Torch time / LLAISYS time: 10.49927
+   shape (512, 4096) dtype <f32>
+        Torch time: 0.08598 ms 
+        LLAISYS time: 0.02644 ms
+        Torch time / LLAISYS time: 3.25194
+   shape (512, 4096) dtype <f16>
+        Torch time: 0.06841 ms 
+        LLAISYS time: 0.02256 ms
+        Torch time / LLAISYS time: 3.03266
+   shape (512, 4096) dtype <bf16>
+        Torch time: 0.06925 ms 
+        LLAISYS time: 0.01929 ms
+        Torch time / LLAISYS time: 3.58922

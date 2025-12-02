@@ -15,7 +15,7 @@ def torch_self_attention(attn_val, query, key, value, scale):
     L, S = query.size(-2), key.size(-2)
     attn_bias = torch.zeros(L, S, dtype=query.dtype, device=query.device)
 
-    temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=S-L)
+    temp_mask = torch.ones(L, S, dtype=torch.bool, device=query.device).tril(diagonal=S-L)
     attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
     attn_bias.to(query.dtype)
 
@@ -48,6 +48,9 @@ def test_op_self_attention(
     v, v_ = random_tensor((kvlen, nkvh, hd), dtype_name, device_name)
     scale = 1.0 / (hd**0.5)
 
+    #print(q)
+    #print(k)
+    #print(v)
     attn_val, attn_val_ = random_tensor((qlen, nh, hd), dtype_name, device_name)
     torch_self_attention(attn_val, q, k, v, scale)
     llaisys.Ops.self_attention(attn_val_, q_, k_, v_, scale)
@@ -72,6 +75,8 @@ if __name__ == "__main__":
         # qlen, kvlen, nh, nkvh, hd
         (2, 2, 1, 1, 4),
         (5, 11, 4, 2, 8),
+        (10, 10, 12, 2, 128),
+        (1, 20, 12, 2, 128),
     ]
     testDtypePrec = [
         # type, atol, rtol

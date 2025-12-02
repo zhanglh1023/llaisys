@@ -1,0 +1,49 @@
+Testing Ops.self_attention on nvidia
+   qlen=2 kvlen=2 nh=1 nkvh=1 hd=4 dtype <f32>
+        Torch time: 0.17199 ms 
+        LLAISYS time: 0.03816 ms
+        Torch time / LLAISYS time: 4.50728
+   qlen=2 kvlen=2 nh=1 nkvh=1 hd=4 dtype <f16>
+        Torch time: 0.17984 ms 
+        LLAISYS time: 0.04245 ms
+        Torch time / LLAISYS time: 4.23693
+   qlen=2 kvlen=2 nh=1 nkvh=1 hd=4 dtype <bf16>
+        Torch time: 0.17455 ms 
+        LLAISYS time: 0.03925 ms
+        Torch time / LLAISYS time: 4.44733
+   qlen=5 kvlen=11 nh=4 nkvh=2 hd=8 dtype <f32>
+        Torch time: 0.17407 ms 
+        LLAISYS time: 0.04272 ms
+        Torch time / LLAISYS time: 4.07473
+   qlen=5 kvlen=11 nh=4 nkvh=2 hd=8 dtype <f16>
+        Torch time: 0.28649 ms 
+        LLAISYS time: 0.04206 ms
+        Torch time / LLAISYS time: 6.81119
+   qlen=5 kvlen=11 nh=4 nkvh=2 hd=8 dtype <bf16>
+        Torch time: 0.29168 ms 
+        LLAISYS time: 0.04237 ms
+        Torch time / LLAISYS time: 6.88431
+   qlen=10 kvlen=10 nh=12 nkvh=2 hd=128 dtype <f32>
+        Torch time: 0.16929 ms 
+        LLAISYS time: 0.11564 ms
+        Torch time / LLAISYS time: 1.46385
+   qlen=10 kvlen=10 nh=12 nkvh=2 hd=128 dtype <f16>
+        Torch time: 0.42139 ms 
+        LLAISYS time: 0.13186 ms
+        Torch time / LLAISYS time: 3.19588
+   qlen=10 kvlen=10 nh=12 nkvh=2 hd=128 dtype <bf16>
+        Torch time: 0.39690 ms 
+        LLAISYS time: 0.13096 ms
+        Torch time / LLAISYS time: 3.03075
+   qlen=1 kvlen=20 nh=12 nkvh=2 hd=128 dtype <f32>
+        Torch time: 0.21420 ms 
+        LLAISYS time: 0.20881 ms
+        Torch time / LLAISYS time: 1.02580
+   qlen=1 kvlen=20 nh=12 nkvh=2 hd=128 dtype <f16>
+        Torch time: 0.16978 ms 
+        LLAISYS time: 0.21305 ms
+        Torch time / LLAISYS time: 0.79693
+   qlen=1 kvlen=20 nh=12 nkvh=2 hd=128 dtype <bf16>
+        Torch time: 0.17339 ms 
+        LLAISYS time: 0.20689 ms
+        Torch time / LLAISYS time: 0.83803
