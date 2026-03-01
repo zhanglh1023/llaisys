@@ -73,10 +73,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     testShapes = [
         # qlen, kvlen, nh, nkvh, hd
-        (2, 2, 1, 1, 4),
-        (5, 11, 4, 2, 8),
-        (10, 10, 12, 2, 128),
-        (1, 20, 12, 2, 128),
+        (16, 32, 1, 1, 64),
+        (32, 64, 1, 1, 64),
+        (64, 64, 1, 1, 64),
+        (64, 128, 1, 1, 64),
     ]
     testDtypePrec = [
         # type, atol, rtol

@@ -8,99 +8,350 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 
+#define WARP_SIZE 32
 #define CEIL(a, b) (((a) + (b) - 1) / (b))
+#define LDST128BITS(value) ((reinterpret_cast<float4*>(&(value))[0]))
+#define FLOAT(value) ((reinterpret_cast<float*>(&(value))[0]))
+#define LDMATRIX_X4(R0, R1, R2, R3, addr) \
+    asm volatile( \
+        "ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n"\
+        : "=r"(R0), "=r"(R1), "=r"(R2), "=r"(R3) \
+        : "r"(addr))
+#define LDMATRIX_X2(R0, R1, addr) \
+    asm volatile(\
+        "ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0, %1}, [%2];\n"\
+        : "=r"(R0), "=r"(R1) \
+        : "r"(addr))
+#define HMMA16816F32(RD0, RD1, RD2, RD3, RA0, RA1, RA2, RA3, RB0, RB1, RC0, RC1, RC2, RC3) \
+    asm volatile(\
+        "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, "\
+        "{%8, %9}, {%10, %11, %12, %13};\n"\
+        : "=r"(RD0), "=r"(RD1), "=r"(RD2), "=r"(RD3) \
+        : "r"(RA0), "r"(RA1), "r"(RA2), "r"(RA3), "r"(RB0), "r"(RB1), "r"(RC0), "r"(RC1), "r"(RC2), "r"(RC3))
+#define CP_ASYNC_CG(dst, src, bytes)       \
+    asm volatile(                          \
+        "cp.async.cg.shared.global.L2::128B [%0], [%1], %2;\n" ::"r"(dst), \
+        "l"(src), "n"(bytes))
+#define CP_ASYNC_WAIT_GROUP(n)  \
+    asm volatile("cp.async.wait_group %0;\n" ::"n"(n))
+#define CP_ASYNC_COMMIT_GROUP() asm volatile("cp.async.commit_group;\n" ::)
 
 namespace {
 
-template <typename T>
-__device__ __forceinline__ T add(float a, T b) {
-    return a + b;
-}
-template <>
-__device__ __forceinline__ __half add(float a, __half b) {
-    __half ta = __float2half(a);
-    return __hadd(ta, b);
-}
-template <>
-__device__ __forceinline__ __nv_bfloat16 add(float a, __nv_bfloat16 b) {
-    __nv_bfloat16 ta = __float2bfloat16(a);
-    return __hadd(ta, b);
-}
-template <typename T>
-__device__ __forceinline__ float fma(T a, T b, float c) {
-    return a * b + c;
-}
-template <>
-__device__ __forceinline__ float fma(__half a, __half b, float c) {
-    float ta = __half2float(a);
-    float tb = __half2float(b);
-    return ta * tb + c;
-}
-template <>
-__device__ __forceinline__ float fma(__nv_bfloat16 a, __nv_bfloat16 b, float c) {
-    float ta = __bfloat162float(a);
-    float tb = __bfloat162float(b);
-    return ta * tb + c;
-}
-
-template <typename T, const int BM, const int BN, const int BK, const int TM, const int TN>
-__global__ void gemm(T* C, const T* A, const T* B, const T* BIAS, const size_t M, const size_t N, const size_t K) {
-    extern __shared__ char s_mem[];
-    T *s_a = reinterpret_cast<T*>(s_mem);
-    T *s_b = s_a + BM * BK;
-
-    int bx = blockIdx.x;
-    int by = blockIdx.y;
-    int thread_col = BN / TN;
-    int thread_row = BM / TM;
-    int thread_num = thread_row * thread_col;
-    int tx = (threadIdx.x % thread_col) * TN;
-    int ty = (threadIdx.x / thread_col) * TM;
-
-    A += by * BM * K;
-    B += bx * BN * K;
-    C += by * BM * N + bx * BN;
-
-    int a_col = threadIdx.x % BK;
-    int a_row = threadIdx.x / BK;
-    int a_stride = thread_num / BK;
-
-    int b_col = threadIdx.x % BK;
-    int b_row = threadIdx.x / BK;
-    int b_stride = thread_num / BK;
-
-    float tmp[TM][TN] = {0.f};
+template <const int MMA_M = 16, const int MMA_N = 8, const int MMA_K = 16, 
+const int MMA_TILE_M = 2, const int MMA_TILE_N = 4,
+const int WARP_TILE_M = 4, const int WARP_TILE_N = 4,
+const int WARP_TILE_K = 2, const int A_PAD = 8, const int B_PAD = 8,
+const int K_STAGE = 3>
+__global__ void __launch_bounds__(256)
+    hgemm_mma_m16n8k16_mma2x4_warp4x4x2_stages_kernel(
+        const __nv_bfloat16 *__restrict__ A, const __nv_bfloat16 *__restrict__ B, const __nv_bfloat16 *__restrict__ bias,
+        __nv_bfloat16 *__restrict__ C, int M, int N, int K
+    ) {
+    const int bx = blockIdx.x;
+    const int by = blockIdx.y;
+    const int NUM_K_TILES = CEIL(K, MMA_K * WARP_TILE_K);
+    constexpr int BM = MMA_M * MMA_TILE_M * WARP_TILE_M;
+    constexpr int BN = MMA_N * MMA_TILE_N * WARP_TILE_N;
+    constexpr int BK = MMA_K;
     
-    for(size_t bk = 0;bk < K;bk += BK) {
-        for(size_t i = 0;i < BM;i += a_stride) {
-            s_a[(a_row + i) * BK + a_col] = (by * BM + a_row + i < M && a_col + bk < K) ? A[(a_row + i) * K + a_col] : static_cast<T>(0.0);
+    extern __shared__ __nv_bfloat16 smem[];
+    __nv_bfloat16 *s_a = smem;
+    __nv_bfloat16 *s_b = smem + K_STAGE * BM * (BK + A_PAD) * WARP_TILE_K;
+    constexpr int s_a_stage_offset = BM * (BK + A_PAD);
+    constexpr int s_b_stage_offset = BN * (BK + B_PAD);
+    constexpr int s_a_mma_k_store_offset = K_STAGE * BM * (BK + A_PAD);
+    constexpr int s_b_mma_k_store_offset = K_STAGE * BN * (BK + B_PAD);
+
+    const int tid = threadIdx.x;
+    const int warp_id = tid / WARP_SIZE;
+    const int lane_id = tid % WARP_SIZE;
+    const int warp_m = warp_id % 2;
+    const int warp_n = warp_id / 2;
+
+    int load_smem_a_m = tid / 2;
+    int load_smem_a_k = tid % 2 * 8;
+    int load_smem_b_n = tid / 2;
+    int load_smem_b_k = tid % 2 * 8;
+    
+    int load_gmem_a_m = by * BM + load_smem_a_m;
+    int load_gmem_b_n = bx * BN + load_smem_b_n;
+    //if(load_gmem_a_m >= M || load_gmem_b_n >= N) return;
+
+    uint32_t RC[WARP_TILE_M][WARP_TILE_N][4];
+    for(int i = 0;i < WARP_TILE_M;++i) {
+        for(int j = 0;j < WARP_TILE_N;++j) {
+            RC[i][j][0] = 0;
+            RC[i][j][1] = 0;
+            RC[i][j][2] = 0;
+            RC[i][j][3] = 0;
         }
-        for(size_t i = 0;i < BN;i += b_stride) {
-            s_b[(b_row + i) * BK + b_col] = (bx * BN + b_row + i < N && b_col + bk < K) ? B[(b_row + i) * K + b_col] : static_cast<T>(0.0);
-        }
-        __syncthreads();
-        if(bk + BK < K) {
-            A += BK;
-            B += BK;
-        }
-        
-        for(size_t k = 0;k < BK;k++) {
-            for(size_t i = 0;i < TM;i++) {
-                for(size_t j = 0;j < TN;j++) {
-                    tmp[i][j] = fma(s_a[(ty + i) * BK + k], s_b[(tx + j) * BK + k], tmp[i][j]);
-                    //tmp[i][j] += s_a[(ty + i) * BK + k] * s_b[(tx + j) * BK + k];
-                }
-            }
-        }
-        __syncthreads();
     }
 
-    for(int j = 0;j < TN;j++) {
-        T bias = BIAS[bx * BN + tx + j];
-        for(int i = 0;i < TM;i++) {
-            if(by * BM + ty + i < M && bx * BN + tx + j < N) 
-                C[(ty + i) * N + tx + j] = add(tmp[i][j], bias);
-                //C[(ty + i) * N + tx + j] = tmp[i][j] + BIAS[bx * BN + tx + j];
+    uint32_t smem_a_base_ptr = __cvta_generic_to_shared(s_a);
+    uint32_t smem_b_base_ptr = __cvta_generic_to_shared(s_b);
+
+    for(int k = 0;k < (K_STAGE - 1);++k) {
+        int load_gmem_a_k = k * BK * WARP_TILE_K + load_smem_a_k;
+        int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+        int load_gmem_b_k = k * BK * WARP_TILE_K + load_smem_b_k;
+        int load_gmem_b_addr = load_gmem_b_n * K + load_gmem_b_k;
+        uint32_t load_smem_a_ptr = (smem_a_base_ptr + (k * s_a_stage_offset + load_smem_a_m * (BK + A_PAD) + load_smem_a_k) * sizeof(__nv_bfloat16));
+        if(load_gmem_a_m < M && load_gmem_a_k + 8 <= K) {
+            CP_ASYNC_CG(load_smem_a_ptr, &A[load_gmem_a_addr], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_a[(k * s_a_stage_offset + load_smem_a_m * (BK + A_PAD) + load_smem_a_k + i)] = (load_gmem_a_m < M && load_gmem_a_k + i < K) ? A[load_gmem_a_addr + i] : __nv_bfloat16(0);
+            }
+        }
+        
+        uint32_t load_smem_a_mma_k_ptr = load_smem_a_ptr + s_a_mma_k_store_offset * sizeof(__nv_bfloat16);
+        if(load_gmem_a_m < M && load_gmem_a_k + 16 + 8 <= K) {
+            CP_ASYNC_CG(load_smem_a_mma_k_ptr, &A[load_gmem_a_addr + 16], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_a[(s_a_mma_k_store_offset + k * s_a_stage_offset + load_smem_a_m * (BK + A_PAD) + load_smem_a_k + i)] = (load_gmem_a_m < M && load_gmem_a_k + 16 + i < K) ? A[load_gmem_a_addr + 16 + i] : __nv_bfloat16(0);
+            }
+        }
+        
+        uint32_t load_smem_b_ptr = (smem_b_base_ptr + (k * s_b_stage_offset + load_smem_b_n * (BK + B_PAD) + load_smem_b_k) * sizeof(__nv_bfloat16));
+        if(load_gmem_b_n < N && load_gmem_b_k + 8 <= K) {
+            CP_ASYNC_CG(load_smem_b_ptr, &B[load_gmem_b_addr], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_b[(k * s_b_stage_offset + load_smem_b_n * (BK + B_PAD) + load_smem_b_k) + i] = (load_gmem_b_n < N && load_gmem_b_k + i < K) ? B[load_gmem_b_addr + i] : __nv_bfloat16(0);
+            }
+        }
+        uint32_t load_smem_b_mma_k_ptr = load_smem_b_ptr + s_b_mma_k_store_offset * sizeof(__nv_bfloat16);
+        if(load_gmem_b_n < N && load_gmem_b_k + 16 + 8 <= K) {
+            CP_ASYNC_CG(load_smem_b_mma_k_ptr, &B[load_gmem_b_addr + 16], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_b[(k * s_b_stage_offset + load_smem_b_n * (BK + B_PAD) + load_smem_b_k + s_b_mma_k_store_offset) + i] = (load_gmem_b_n < N && load_gmem_b_k + 16 + i < K) ? B[load_gmem_b_addr + 16 + i] : __nv_bfloat16(0);
+            }
+        }
+        CP_ASYNC_COMMIT_GROUP();
+    }
+    CP_ASYNC_WAIT_GROUP(K_STAGE - 2);
+    __syncthreads();
+    uint32_t RA[2][WARP_TILE_M][4];
+    uint32_t RB[2][WARP_TILE_N][2];
+    int reg_store_idx = 0;
+    int reg_load_idx = 1;
+    {
+        for(int i = 0;i < WARP_TILE_M;++i) {
+            int warp_smem_a_m = warp_m * WARP_TILE_M * MMA_M + i * MMA_M;
+            int lane_smem_a_m = warp_smem_a_m + lane_id % 16;
+            int lane_smem_a_k = lane_id / 16 * 8;
+            uint32_t lane_smem_a_ptr = (smem_a_base_ptr + (lane_smem_a_m * (BK + A_PAD) + lane_smem_a_k) * sizeof(__nv_bfloat16));
+            LDMATRIX_X4(RA[reg_store_idx][i][0], RA[reg_store_idx][i][1], RA[reg_store_idx][i][2], RA[reg_store_idx][i][3], lane_smem_a_ptr);
+        }
+
+        for(int i = 0;i < WARP_TILE_N;++i) {
+            int warp_smem_b_n = warp_n * WARP_TILE_N * MMA_N + i * MMA_N;
+            int lane_smem_b_n = warp_smem_b_n + lane_id % 8;
+            int lane_smem_b_k = lane_id / 8 * 8;
+            uint32_t lane_smem_b_ptr = (smem_b_base_ptr + (lane_smem_b_n * (BK + B_PAD) + lane_smem_b_k) * sizeof(__nv_bfloat16));
+            LDMATRIX_X2(RB[reg_store_idx][i][0], RB[reg_store_idx][i][1], lane_smem_b_ptr);
+        }
+    }
+    
+    for(int k = (K_STAGE - 1);k < NUM_K_TILES;++k) {
+        reg_store_idx ^= 1;
+        reg_load_idx ^= 1;
+        int smem_sel = (k + 1) % K_STAGE;
+        int smem_sel_next = k % K_STAGE;
+
+        int load_gmem_a_k = k * BK * WARP_TILE_K + load_smem_a_k;
+        int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+        int load_gmem_b_k = k * BK * WARP_TILE_K + load_smem_b_k;
+        int load_gmem_b_addr = load_gmem_b_n * K + load_gmem_b_k;
+
+        uint32_t load_smem_a_ptr = (smem_a_base_ptr + (smem_sel_next * s_a_stage_offset + load_smem_a_m * (BK + A_PAD) + load_smem_a_k) * sizeof(__nv_bfloat16));
+        if(load_gmem_a_m < M && load_gmem_a_k + 8 <= K) {
+            CP_ASYNC_CG(load_smem_a_ptr, &A[load_gmem_a_addr], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_a[(smem_sel_next * s_a_stage_offset + load_smem_a_m * (BK + A_PAD) + load_smem_a_k) + i] = (load_gmem_a_m < M && load_gmem_a_k + i < K) ? A[load_gmem_a_addr + i] : __nv_bfloat16(0);
+            }
+        }
+        uint32_t load_smem_a_mma_k_ptr = (load_smem_a_ptr + s_a_mma_k_store_offset * sizeof(__nv_bfloat16));
+        if(load_gmem_a_m < M && load_gmem_a_k + 16 + 8 <= K) {
+            CP_ASYNC_CG(load_smem_a_mma_k_ptr, &A[load_gmem_a_addr + 16], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_a[(smem_sel_next * s_a_stage_offset + load_smem_a_m * (BK + A_PAD) + load_smem_a_k + s_a_mma_k_store_offset) + i] = (load_gmem_a_m < M && load_gmem_a_k + 16 + i < K) ? A[load_gmem_a_addr + 16 + i] : __nv_bfloat16(0);
+            }
+        }
+        uint32_t load_smem_b_ptr = (smem_b_base_ptr + (smem_sel_next * s_b_stage_offset + load_smem_b_n * (BK + B_PAD) + load_smem_b_k) * sizeof(__nv_bfloat16));
+        if(load_gmem_b_n < N && load_gmem_b_k + 8 <= K) {
+            CP_ASYNC_CG(load_smem_b_ptr, &B[load_gmem_b_addr], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_b[(smem_sel_next * s_b_stage_offset + load_smem_b_n * (BK + B_PAD) + load_smem_b_k) + i] = (load_gmem_b_n < N && load_gmem_b_k + i < K) ? B[load_gmem_b_addr + i] : __nv_bfloat16(0);
+            }
+        }
+        uint32_t load_smem_b_mma_k_ptr = (load_smem_b_ptr + s_b_mma_k_store_offset * sizeof(__nv_bfloat16));
+        if(load_gmem_b_n < N && load_gmem_b_k + 16 + 8 <= K) {
+            CP_ASYNC_CG(load_smem_b_mma_k_ptr, &B[load_gmem_b_addr + 16], 16);
+        } else {
+            for(int i = 0;i < 8;++i) {
+                s_b[(smem_sel_next * s_b_stage_offset + load_smem_b_n * (BK + B_PAD) + load_smem_b_k + s_b_mma_k_store_offset) + i] = (load_gmem_b_n < N && load_gmem_b_k + 16 + i < K) ? B[load_gmem_b_addr + 16 + i] : __nv_bfloat16(0);
+            }
+        }
+        
+        CP_ASYNC_COMMIT_GROUP();
+        for(int i = 0;i < WARP_TILE_M;++i) {
+            int warp_smem_a_m = warp_m * WARP_TILE_M * MMA_M + i * MMA_M;
+            int lane_smem_a_m = warp_smem_a_m + lane_id % 16;
+            int lane_smem_a_k = lane_id / 16 * 8;
+            uint32_t lane_smem_a_ptr = (smem_a_base_ptr + (reg_store_idx * s_a_mma_k_store_offset + smem_sel * s_a_stage_offset + lane_smem_a_m * (BK + A_PAD) + lane_smem_a_k) * sizeof(__nv_bfloat16));
+            LDMATRIX_X4(RA[reg_store_idx][i][0], RA[reg_store_idx][i][1], RA[reg_store_idx][i][2], RA[reg_store_idx][i][3], lane_smem_a_ptr);
+        }
+        for(int i = 0;i < WARP_TILE_N;++i) {
+            int warp_smem_b_n = warp_n * WARP_TILE_N * MMA_N + i * MMA_N;
+            int lane_smem_b_n = warp_smem_b_n + lane_id % 8;
+            int lane_smem_b_k = lane_id / 8 * 8;
+            uint32_t lane_smem_b_ptr = (smem_b_base_ptr + (reg_store_idx * s_b_mma_k_store_offset + smem_sel * s_b_stage_offset + lane_smem_b_n * (BK + B_PAD) + lane_smem_b_k) * sizeof(__nv_bfloat16));
+            LDMATRIX_X2(RB[reg_store_idx][i][0], RB[reg_store_idx][i][1], lane_smem_b_ptr);
+        }
+        for(int i = 0;i < WARP_TILE_M;++i) {
+            for(int j = 0;j < WARP_TILE_N;++j) {
+                HMMA16816F32(RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3], RA[reg_load_idx][i][0], RA[reg_load_idx][i][1], RA[reg_load_idx][i][2], RA[reg_load_idx][i][3], 
+                        RB[reg_load_idx][j][0], RB[reg_load_idx][j][1], RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3]);
+            }
+        }
+        reg_load_idx ^= 1;
+        reg_store_idx ^= 1;
+        for(int i = 0;i < WARP_TILE_M;++i) {
+            for(int j = 0;j < WARP_TILE_N;++j) {
+                HMMA16816F32(RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3], RA[reg_load_idx][i][0], RA[reg_load_idx][i][1], RA[reg_load_idx][i][2], RA[reg_load_idx][i][3], 
+                        RB[reg_load_idx][j][0], RB[reg_load_idx][j][1], RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3]);
+            }
+        }
+        CP_ASYNC_WAIT_GROUP(K_STAGE - 2);
+        __syncthreads();
+        int reg_smem_sel = (smem_sel + 1) % K_STAGE;
+        for(int i = 0;i < WARP_TILE_M;++i) {
+            int warp_smem_a_m = warp_m * WARP_TILE_M * MMA_M + i * MMA_M;
+            int lane_smem_a_m = warp_smem_a_m + lane_id % 16;
+            int lane_smem_a_k = lane_id / 16 * 8;
+            uint32_t lane_smem_a_ptr = (smem_a_base_ptr + (reg_smem_sel * s_a_stage_offset + lane_smem_a_m * (BK + A_PAD) + lane_smem_a_k) * sizeof(__nv_bfloat16));
+            LDMATRIX_X4(RA[reg_store_idx][i][0], RA[reg_store_idx][i][1], RA[reg_store_idx][i][2], RA[reg_store_idx][i][3], lane_smem_a_ptr);
+        }
+        for(int i = 0;i < WARP_TILE_N;++i) {
+            int warp_smem_b_n = warp_n * WARP_TILE_N * MMA_N + i * MMA_N;
+            int lane_smem_b_n = warp_smem_b_n + lane_id % 8;
+            int lane_smem_b_k = lane_id / 8 * 8;
+            uint32_t lane_smem_b_ptr = (smem_b_base_ptr + (reg_smem_sel * s_b_stage_offset + lane_smem_b_n * (BK + B_PAD) + lane_smem_b_k) * sizeof(__nv_bfloat16));
+            LDMATRIX_X2(RB[reg_store_idx][i][0], RB[reg_store_idx][i][1], lane_smem_b_ptr);
+        }
+    }
+    if constexpr ((K_STAGE - 2) > 0) {
+        CP_ASYNC_WAIT_GROUP(0);
+        __syncthreads();
+    }
+    {
+         for(int k = 0;k < K_STAGE - 1;++k) {
+            reg_load_idx ^= 1;
+            reg_store_idx ^= 1;
+            int smem_sel = (NUM_K_TILES - (K_STAGE - 1) + k) % K_STAGE;
+            for(int i = 0;i < WARP_TILE_M;++i) {
+                int warp_smem_a_m = warp_m * WARP_TILE_M * MMA_M + i * MMA_M;
+                int lane_smem_a_m = warp_smem_a_m + lane_id % 16;
+                int lane_smem_a_k = lane_id / 16 * 8;
+                uint32_t lane_smem_a_ptr = (smem_a_base_ptr + (reg_store_idx * s_a_mma_k_store_offset + smem_sel * s_a_stage_offset + lane_smem_a_m * (BK + A_PAD) + lane_smem_a_k) * sizeof(__nv_bfloat16));
+                LDMATRIX_X4(RA[reg_store_idx][i][0], RA[reg_store_idx][i][1], RA[reg_store_idx][i][2], RA[reg_store_idx][i][3], lane_smem_a_ptr);
+            }
+            for(int i = 0;i < WARP_TILE_N;++i) {
+                int warp_smem_b_n = warp_n * WARP_TILE_N * MMA_N + i * MMA_N;
+                int lane_smem_b_n = warp_smem_b_n + lane_id % 8;
+                int lane_smem_b_k = lane_id / 8 * 8;
+                uint32_t lane_smem_b_ptr = (smem_b_base_ptr + (reg_store_idx * s_b_mma_k_store_offset + smem_sel * s_b_stage_offset + lane_smem_b_n * (BK + B_PAD) + lane_smem_b_k) * sizeof(__nv_bfloat16));
+                LDMATRIX_X2(RB[reg_store_idx][i][0], RB[reg_store_idx][i][1], lane_smem_b_ptr);
+            }
+            for(int i = 0;i < WARP_TILE_M;++i) {
+                for(int j = 0;j < WARP_TILE_N;++j) {
+                    HMMA16816F32(RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3], RA[0][i][0], RA[0][i][1], RA[0][i][2], RA[0][i][3], RB[0][j][0], RB[0][j][1], 
+                            RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3]);
+                }
+            }
+            for(int i = 0;i < WARP_TILE_M;++i) {
+                for(int j = 0;j < WARP_TILE_N;++j) {
+                    HMMA16816F32(RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3], RA[1][i][0], RA[1][i][1], RA[1][i][2], RA[1][i][3], RB[1][j][0], RB[1][j][1], 
+                            RC[i][j][0], RC[i][j][1], RC[i][j][2], RC[i][j][3]);
+                }
+            }
+            reg_store_idx ^= 1;
+            int reg_stage_sel = (smem_sel + 1) % K_STAGE;
+            for(int i = 0;i < WARP_TILE_M;++i) {
+                int warp_smem_a_m = warp_m * WARP_TILE_M * MMA_M + i * MMA_M;
+                int lane_smem_a_m = warp_smem_a_m + lane_id % 16;
+                int lane_smem_a_k = lane_id / 16 * 8;
+                uint32_t lane_smem_a_ptr = (smem_a_base_ptr + (reg_store_idx * s_a_mma_k_store_offset + reg_stage_sel * s_a_stage_offset + lane_smem_a_m * (BK + A_PAD) + lane_smem_a_k) * sizeof(__nv_bfloat16));
+                LDMATRIX_X4(RA[reg_store_idx][i][0], RA[reg_store_idx][i][1], RA[reg_store_idx][i][2], RA[reg_store_idx][i][3], lane_smem_a_ptr);
+            }
+            for(int i = 0;i < WARP_TILE_N;++i) {
+                int warp_smem_b_n = warp_n * WARP_TILE_N * MMA_N + i * MMA_N;
+                int lane_smem_b_n = warp_smem_b_n + lane_id % 8;
+                int lane_smem_b_k = lane_id / 8 * 8;
+                uint32_t lane_smem_b_ptr = (smem_b_base_ptr + (reg_store_idx * s_b_mma_k_store_offset + reg_stage_sel * s_b_stage_offset + lane_smem_b_n * (BK + B_PAD) + lane_smem_b_k) * sizeof(__nv_bfloat16));
+                LDMATRIX_X2(RB[reg_store_idx][i][0], RB[reg_store_idx][i][1], lane_smem_b_ptr);
+            }
+         }
+    }
+    for(int i = 0;i < WARP_TILE_M;++i) {
+        __nv_bfloat16 RC16[2][WARP_TILE_N][8];
+        for(int j = 0;j < WARP_TILE_N;++j) {
+            int store_gmem_c_n = bx * BN + warp_n * WARP_TILE_N * MMA_N + j * MMA_N + lane_id % 4 * 2;
+            //printf("%.4f\n", FLOAT(RC[i][j][0]));
+            RC16[0][j][0] = __float2bfloat16(FLOAT(RC[i][j][0]));
+            RC16[0][j][1] = __float2bfloat16(FLOAT(RC[i][j][1]));
+            RC16[1][j][0] = __float2bfloat16(FLOAT(RC[i][j][2]));
+            RC16[1][j][1] = __float2bfloat16(FLOAT(RC[i][j][3]));
+            if(store_gmem_c_n < N) {
+                RC16[0][j][0] += bias[store_gmem_c_n];
+                RC16[1][j][0] += bias[store_gmem_c_n];
+            }
+            
+            if(store_gmem_c_n + 1 < N) {
+                RC16[0][j][1] += bias[store_gmem_c_n + 1];
+                RC16[1][j][1] += bias[store_gmem_c_n + 1];
+            }
+        }
+        for(int j = 0;j < WARP_TILE_N;++j) {
+            RC16[0][j][2] = __shfl_sync(0xffffffff, RC16[0][j][0], lane_id + 1);
+            RC16[0][j][3] = __shfl_sync(0xffffffff, RC16[0][j][1], lane_id + 1);
+            RC16[0][j][4] = __shfl_sync(0xffffffff, RC16[0][j][0], lane_id + 2);
+            RC16[0][j][5] = __shfl_sync(0xffffffff, RC16[0][j][1], lane_id + 2);
+            RC16[0][j][6] = __shfl_sync(0xffffffff, RC16[0][j][0], lane_id + 3);
+            RC16[0][j][7] = __shfl_sync(0xffffffff, RC16[0][j][1], lane_id + 3);
+
+            RC16[1][j][2] = __shfl_sync(0xffffffff, RC16[1][j][0], lane_id + 1);
+            RC16[1][j][3] = __shfl_sync(0xffffffff, RC16[1][j][1], lane_id + 1);
+            RC16[1][j][4] = __shfl_sync(0xffffffff, RC16[1][j][0], lane_id + 2);
+            RC16[1][j][5] = __shfl_sync(0xffffffff, RC16[1][j][1], lane_id + 2);
+            RC16[1][j][6] = __shfl_sync(0xffffffff, RC16[1][j][0], lane_id + 3);
+            RC16[1][j][7] = __shfl_sync(0xffffffff, RC16[1][j][1], lane_id + 3);
+            
+            if(lane_id % 4 == 0) {
+                int store_gmem_c_m = by * BM + warp_m * WARP_TILE_M * MMA_M + i * MMA_M + lane_id / 4;
+                int store_gmem_c_n = bx * BN + warp_n * WARP_TILE_N * MMA_N + j * MMA_N;
+                if(store_gmem_c_m < M && store_gmem_c_n + 8 <= N)
+                    LDST128BITS(C[store_gmem_c_m * N + store_gmem_c_n]) = LDST128BITS(RC16[0][j][0]);
+                else if(store_gmem_c_m < M) {
+                    for(int k = 0;store_gmem_c_n + k < N;++k) {
+                        C[store_gmem_c_m * N + store_gmem_c_n + k] = RC16[0][j][k];
+                    }
+                }
+                if(store_gmem_c_m + 8 < M && store_gmem_c_n + 8 <= N)
+                    LDST128BITS(C[(store_gmem_c_m + 8) * N + store_gmem_c_n]) = LDST128BITS(RC16[1][j][0]);
+                else if(store_gmem_c_m + 8 < M) {
+                    for(int k = 0;store_gmem_c_n + k < N;++k) {
+                        C[(store_gmem_c_m + 8) * N + store_gmem_c_n + k] = RC16[1][j][k];
+                    }
+                }
+            }
         }
     }
 }
@@ -121,18 +372,32 @@ void linear_(std::byte *out, // [m, n]  (row major)  /  [n, m] (col major)
              size_t k,  // in_dim
              size_t n,  // out_dim (cols of out)
              cudaStream_t stream) {
-    /*
-    if(m <= 256 && n <= 256 || k <= 256) {
-        const int TM = 4;
-        const int TN = 4;
-        const int BM = 16 * TM;
-        const int BN = 16 * TN;
-        const int BK = 16;
+    //__nv_bfloat16
+    if(std::is_same_v<T, __nv_bfloat16> && bias != nullptr) {
+        // MMA kernel 要求 bias 非空，否则会空指针解引用导致非法访存
+        const int MMA_M = 16;
+        const int MMA_N = 8;
+        const int MMA_K = 16;
+        const int MMA_TILE_M = 2;
+        const int MMA_TILE_N = 4; 
+        const int WARP_TILE_M = 4;
+        const int WARP_TILE_N = 4;
+        const int WARP_TILE_K = 2;
+        const int A_PAD = 8;
+        const int B_PAD = 8;
+        const int K_STAGE = 2;
+        int sram_size = (2 * K_STAGE * MMA_TILE_M * WARP_TILE_M * MMA_M * (MMA_K + A_PAD) + 2 * K_STAGE * (MMA_TILE_N * WARP_TILE_N * MMA_N) * (MMA_K + B_PAD)) * sizeof(__nv_bfloat16);
+    cudaFuncSetAttribute(                                                      
+        hgemm_mma_m16n8k16_mma2x4_warp4x4x2_stages_kernel<               
+            MMA_M, MMA_N, MMA_K, MMA_TILE_M, MMA_TILE_N, WARP_TILE_M,          
+            WARP_TILE_N, WARP_TILE_K, A_PAD, B_PAD, K_STAGE>,  cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
         dim3 block(256);
-        dim3 grid(CEIL(n, BN), CEIL(m, BM));
-        gemm<T, BM, BN, BK, TM, TN><<<grid, block, 2 * BM * BN * sizeof(T), stream>>>(reinterpret_cast<T*>(out), reinterpret_cast<const T*>(in), reinterpret_cast<const T*>(weight),
-                                                    reinterpret_cast<const T*>(bias), m, n, k);
-    } else {*/
+        dim3 grid(CEIL(n, 128), CEIL(m, 128));
+        hgemm_mma_m16n8k16_mma2x4_warp4x4x2_stages_kernel<               
+            MMA_M, MMA_N, MMA_K, MMA_TILE_M, MMA_TILE_N, WARP_TILE_M,          
+            WARP_TILE_N, WARP_TILE_K, A_PAD, B_PAD, K_STAGE><<<grid, block, sram_size, stream>>>(reinterpret_cast<const __nv_bfloat16*>(in), reinterpret_cast<const __nv_bfloat16*>(weight),
+                                                    reinterpret_cast<const __nv_bfloat16*>(bias), reinterpret_cast<__nv_bfloat16*>(out), m, n, k);
+    } else {
         auto &runtime = llaisys::core::context().runtime();
         auto handle = runtime.cublasHandle();
 
@@ -184,8 +449,7 @@ void linear_(std::byte *out, // [m, n]  (row major)  /  [n, m] (col major)
             dim3 grid(CEIL(m * n, 256));
             add_bias<T><<<grid, block, 0, stream>>>(reinterpret_cast<T*>(out), reinterpret_cast<const T*>(out), reinterpret_cast<const T*>(bias), m, n);
         }
-    //}
-
+    }
 }
 
 
