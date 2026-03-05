@@ -55,7 +55,7 @@ if __name__ == "__main__":
     parser.add_argument("--profile", action="store_true")
     args = parser.parse_args()
     testShapes = [
-        ((2, 3), (2, 4), (3, 4), True),
+        ((1, 1024), (1, 1536), (1024, 1536), True),
         ((512, 4096), (512, 4096), (4096, 4096), True),
         ((4096, 1024), (4096, 4096), (1024, 4096), True),
     ]

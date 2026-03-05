@@ -356,6 +356,41 @@ __global__ void __launch_bounds__(256)
     }
 }
 
+
+__device__ __forceinline__ float warp_reduce_sum(float val) {
+    #pragma unroll
+    for(int i = WARP_SIZE >> 1;i > 0;i >>= 1) {
+        val += __shfl_xor_sync(0xffffffff, val, i);
+    }
+    return val;
+}
+__global__ void hgemv_k128_f16_kernel(const __nv_bfloat16 *__restrict__ A, const __nv_bfloat16 *__restrict__ B, const __nv_bfloat16 *__restrict__ bias, __nv_bfloat16 *__restrict__ C, int M, int N, int K) {
+    const int tid = threadIdx.x;
+    const int bid = blockIdx.x;
+    const int tx = tid % WARP_SIZE;
+    const int ty = tid / WARP_SIZE;
+    const int n = bid * 8 + ty;
+    if(n >= N) return;
+    const int NUM_WARPS = CEIL(K, 128);
+    float sum = 0;
+    for(int i = 0;i < NUM_WARPS;++i) {
+        int load_gmem_a_k = i * 128 + tx * 4;
+        float a_0 = __bfloat162float(A[load_gmem_a_k]);
+        float a_1 = __bfloat162float(A[load_gmem_a_k + 1]);
+        float a_2 = __bfloat162float(A[load_gmem_a_k + 2]);
+        float a_3 = __bfloat162float(A[load_gmem_a_k + 3]);
+        float b_0 = __bfloat162float(B[n * K + load_gmem_a_k]);
+        float b_1 = __bfloat162float(B[n * K + load_gmem_a_k + 1]);
+        float b_2 = __bfloat162float(B[n * K + load_gmem_a_k + 2]);
+        float b_3 = __bfloat162float(B[n * K + load_gmem_a_k + 3]);
+        sum += a_0 * b_0 + a_1 * b_1 + a_2 * b_2 + a_3 * b_3;
+    }
+    sum = warp_reduce_sum(sum);
+    if(tx == 0) {
+        C[n] = __float2bfloat16(sum) + bias[n];
+    }
+}
+
 template<typename T>
 __global__ void add_bias(T* out, const T* in, const T* bias, size_t M, size_t N) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -374,6 +409,13 @@ void linear_(std::byte *out, // [m, n]  (row major)  /  [n, m] (col major)
              cudaStream_t stream) {
     //__nv_bfloat16
     if(std::is_same_v<T, __nv_bfloat16> && bias != nullptr) {
+        if(m == 1) {
+            dim3 block(256);
+            dim3 grid(CEIL(n, 8));
+            hgemv_k128_f16_kernel<<<grid, block, 0, stream>>>(reinterpret_cast<const __nv_bfloat16*>(in), reinterpret_cast<const __nv_bfloat16*>(weight), 
+            reinterpret_cast<const __nv_bfloat16*>(bias),reinterpret_cast<__nv_bfloat16*>(out), m, n, k);
+            return;
+        }
         // MMA kernel 要求 bias 非空，否则会空指针解引用导致非法访存
         const int MMA_M = 16;
         const int MMA_N = 8;
@@ -385,7 +427,7 @@ void linear_(std::byte *out, // [m, n]  (row major)  /  [n, m] (col major)
         const int WARP_TILE_K = 2;
         const int A_PAD = 8;
         const int B_PAD = 8;
-        const int K_STAGE = 2;
+        const int K_STAGE = 4;
         int sram_size = (2 * K_STAGE * MMA_TILE_M * WARP_TILE_M * MMA_M * (MMA_K + A_PAD) + 2 * K_STAGE * (MMA_TILE_N * WARP_TILE_N * MMA_N) * (MMA_K + B_PAD)) * sizeof(__nv_bfloat16);
     cudaFuncSetAttribute(                                                      
         hgemm_mma_m16n8k16_mma2x4_warp4x4x2_stages_kernel<               

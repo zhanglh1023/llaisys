@@ -102,7 +102,7 @@ if __name__ == "__main__":
     start_time = time.time()
     tokens, output = hf_infer(
         #args.prompt,
-        "hi",
+        "Who are you?",
         tokenizer,
         model,
         max_new_tokens=args.max_steps,
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     start_time = time.time()
     llaisys_tokens, llaisys_output = llaisys_infer(
         #args.prompt,
-        "hi",
+        "Who are you?",
         tokenizer,
         model,
         max_new_tokens=args.max_steps,
